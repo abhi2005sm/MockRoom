@@ -1,0 +1,267 @@
+// MockRoom PostgreSQL Prisma Schema — TRD v2 Specification
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  name         String
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  resumes      Resume[]
+  jobs         Job[]
+  sessions     Session[]
+
+  @@map("users")
+}
+
+model Resume {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  fileUrl    String   @map("file_url")
+  parsedJson Json?    @map("parsed_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("resumes")
+}
+
+model Job {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  title           String
+  company         String
+  experienceLevel String   @map("experience_level")
+  jdText          String   @map("jd_text")
+  parsedSkills    Json     @map("parsed_skills") // Array of SkillItems with source_type: verified|reported|inferred
+  interviewDate   DateTime? @map("interview_date")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plans           InterviewPlan[]
+
+  @@map("jobs")
+}
+
+model InterviewPlan {
+  id              String   @id @default(uuid())
+  jobId           String   @map("job_id")
+  difficulty      String
+  rounds          Json     // Array of InterviewRounds
+  totalQuestions  Int      @map("total_questions")
+  durationMinutes Int      @map("duration_minutes")
+  mode            String   // practice|realistic|pressure|learning|company_sim|final_mock
+  personaId       String   @map("persona_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  job             Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  persona         Persona  @relation(fields: [personaId], references: [id])
+  sessions        Session[]
+
+  @@map("interview_plans")
+}
+
+model Persona {
+  id                String   @id @default(uuid())
+  name              String
+  role              String
+  personality       String
+  style             String
+  followUpIntensity String   @map("follow_up_intensity")
+  interruptionRate  String   @map("interruption_rate")
+  difficulty        String
+  voiceId           String   @map("voice_id")
+
+  plans             InterviewPlan[]
+  sessions          Session[]
+
+  @@map("personas")
+}
+
+model Session {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  planId       String    @map("plan_id")
+  status       String    // active|completed|abandoned|failed
+  startedAt    DateTime  @default(now()) @map("started_at")
+  endedAt      DateTime? @map("ended_at")
+  mode         String
+  personaId    String    @map("persona_id")
+  overallScore Int?      @map("overall_score")
+  verdict      String?
+  recordingUrl String?   @map("recording_url")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan         InterviewPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  persona      Persona   @relation(fields: [personaId], references: [id])
+
+  turns        Turn[]
+  questions    Question[]
+  submissions  Submission[]
+  clientEvents ClientEvent[]
+  scores       Score[]
+  questionScores QuestionScore[]
+  reports      Report[]
+  coachingSections CoachingSection[]
+
+  @@index([userId, createdAt])
+  @@map("sessions")
+}
+
+model Turn {
+  id         String   @id @default(uuid())
+  sessionId  String   @map("session_id")
+  round      String
+  seq        Int
+  speaker    String   // 'interviewer' | 'candidate'
+  text       String
+  startMs    Int      @map("start_ms")
+  endMs      Int      @map("end_ms")
+  questionId String?  @map("question_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, seq])
+  @@map("turns")
+}
+
+model Question {
+  id             String   @id @default(uuid())
+  sessionId      String   @map("session_id")
+  round          String
+  text           String
+  topic          String
+  difficulty     String
+  expectedPoints Json     @map("expected_points")
+
+  session        Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("questions")
+}
+
+model Submission {
+  id         String   @id @default(uuid())
+  sessionId  String   @map("session_id")
+  questionId String?  @map("question_id")
+  kind       String   // 'text' | 'code'
+  language   String?
+  content    String
+  result     Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("submissions")
+}
+
+model ClientEvent {
+  id        String   @id @default(uuid())
+  sessionId String   @map("session_id")
+  type      String   // face_lost | face_found | gaze_off | silence_warning
+  atMs      Int      @map("at_ms")
+  meta      Json?
+
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, atMs])
+  @@map("client_events")
+}
+
+model Score {
+  id        String   @id @default(uuid())
+  sessionId String   @map("session_id")
+  category  String
+  score     Float
+  weight    Float
+  summary   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("scores")
+}
+
+model QuestionScore {
+  id                 String   @id @default(uuid())
+  sessionId          String   @map("session_id")
+  questionId         String   @map("question_id")
+  score              Float
+  dimensions         Json     // {relevance, technicalAccuracy, structure, specificity, confidence}
+  strengths          Json
+  improvements       Json
+  suggestedStructure Json     @map("suggested_structure")
+  evidence           Json
+  idealAnswer        String   @map("ideal_answer")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  session            Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("question_scores")
+}
+
+model Report {
+  id          String   @id @default(uuid())
+  sessionId   String   @unique @map("session_id")
+  reportJson  Json     @map("report_json")
+  generatedAt DateTime @default(now()) @map("generated_at")
+
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("reports")
+}
+
+model CoachingSection {
+  id           String   @id @default(uuid())
+  sessionId    String   @map("session_id")
+  questionId   String   @map("question_id")
+  sectionType  String   @map("section_type") // intro|project|technical|behavioral|closing
+  originalText String   @map("original_text")
+  rewrittenText String  @map("rewritten_text")
+  issues       Json
+  reasoning    Json
+  tipIds       Json     @map("tip_ids")
+  practiced    Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  session      Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  practiceAttempts CoachingPracticeAttempt[]
+
+  @@index([sessionId, sectionType])
+  @@map("coaching_sections")
+}
+
+model CoachingPracticeAttempt {
+  id                      String   @id @default(uuid())
+  coachingSectionId       String   @map("coaching_section_id")
+  attemptText             String   @map("attempt_text")
+  attemptAudioUrl         String?  @map("attempt_audio_url")
+  score                   Float
+  comparedToOriginalDelta Float    @map("compared_to_original_delta")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  coachingSection         CoachingSection @relation(fields: [coachingSectionId], references: [id], onDelete: Cascade)
+
+  @@map("coaching_practice_attempts")
+}
+
+model CoachingTip {
+  id           String   @id @default(uuid())
+  topic        String
+  questionType String   @map("question_type")
+  tipText      String   @map("tip_text")
+  sourceUrl    String   @map("source_url")
+  researchedAt DateTime @default(now()) @map("researched_at")
+
+  @@map("coaching_tips")
+}
