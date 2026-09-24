@@ -4,7 +4,8 @@ import React, { useState } from 'react';
 import { useAppStore } from '../../../../store/session.store';
 import { TranscriptTimeline } from '../../../../components/recordings/TranscriptTimeline';
 import { ReplayPlayer } from '../../../../components/recordings/ReplayPlayer';
-import { Video, Calendar, Clock, Download } from 'lucide-react';
+import { Download } from 'lucide-react';
+import { PillTag } from '../../../../components/ui/PillTag';
 
 export default function RecordingsPage() {
   const { liveSession, coachingSections, jobAnalysis } = useAppStore();
@@ -22,21 +23,24 @@ export default function RecordingsPage() {
     : undefined;
 
   return (
-    <div className="space-y-8 animate-fade-in max-w-6xl mx-auto">
+    <div className="space-y-6 sm:space-y-8 animate-fade-in max-w-6xl mx-auto pb-8">
       {/* Header */}
       <header className="border-b border-border pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-heading font-bold text-ink tracking-tight">
+          <div className="flex items-center gap-2 mb-1">
+            <PillTag label="Session Replay" variant="accent" />
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-heading font-extrabold text-ink tracking-tight">
             Session Recording & Replay
           </h1>
           <p className="text-muted text-sm sm:text-base mt-1">
-            <span className="text-ink font-medium">{jobAnalysis.jobTitle}</span> interview transcript replay with synchronized timestamp seeking.
+            <span className="text-ink font-semibold">{jobAnalysis.jobTitle}</span> interview transcript replay with synchronized timestamp seeking.
           </p>
         </div>
 
-        <button className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-surface border border-border hover:bg-bg text-ink font-medium text-xs sm:text-sm transition-colors">
+        <button className="inline-flex items-center gap-2 px-5 py-2.5 rounded-pill bg-surface border border-border hover:bg-bg text-ink font-semibold text-xs sm:text-sm transition-all shadow-xs">
           <Download className="w-4 h-4 text-muted" />
-          Export transcript (.json)
+          Export Transcript (.json)
         </button>
       </header>
 

@@ -7,15 +7,17 @@ import { useAppStore } from '../../../store/session.store';
 import { SectionTabs } from '../../../components/coach/SectionTabs';
 import { CoachingCard } from '../../../components/coach/CoachingCard';
 import { RecurringIssuesRail } from '../../../components/coach/RecurringIssuesRail';
-import { ArrowRight, UserCheck } from 'lucide-react';
+import { UserCheck, Sparkles } from 'lucide-react';
+import { PillTag } from '../../../components/ui/PillTag';
 
 export default function CommunicationCoachPage() {
   const { coachingSections, weakAreas, addPracticeAttempt } = useAppStore();
   const [activeTab, setActiveTab] = useState<SectionType | 'all'>('all');
 
-  const filteredSections = activeTab === 'all'
-    ? coachingSections
-    : coachingSections.filter((s) => s.sectionType === activeTab);
+  const filteredSections =
+    activeTab === 'all'
+      ? coachingSections
+      : coachingSections.filter((s) => s.sectionType === activeTab);
 
   const unpracticedCounts: Record<string, number> = {
     intro: coachingSections.filter((s) => s.sectionType === 'intro' && !s.practiced).length,
@@ -26,28 +28,31 @@ export default function CommunicationCoachPage() {
   };
 
   return (
-    <div className="space-y-8 animate-fade-in max-w-6xl mx-auto">
+    <div className="space-y-6 sm:space-y-8 animate-fade-in max-w-6xl mx-auto pb-8">
       {/* Header */}
       <header className="border-b border-border pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-heading font-bold text-ink tracking-tight">
+          <div className="flex items-center gap-2 mb-1">
+            <PillTag label="AI Speech Coach" variant="accent" icon={Sparkles} />
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-heading font-extrabold text-ink tracking-tight">
             Communication Coach
           </h1>
           <p className="text-muted text-sm sm:text-base mt-1">
-            "Say it like this" rewrites of weak answers without inventing experience you didn't state.
+            "Say it like this" rewrites for weak answers without inventing experience you didn't state.
           </p>
         </div>
 
         <Link
           href="/coach/self-introduction"
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-accent hover:bg-accent-hover text-surface font-medium text-sm transition-colors self-start sm:self-auto"
+          className="inline-flex items-center gap-2 px-6 py-2.5 rounded-pill bg-accent hover:bg-accent-hover text-surface font-semibold text-sm transition-all shadow-sm focus-visible:ring-2 focus-visible:ring-accent self-start sm:self-auto"
         >
           <UserCheck className="w-4 h-4" />
-          Self-Intro trainer
+          Self-Intro Trainer
         </Link>
       </header>
 
-      {/* Primary Navigation Section Tabs */}
+      {/* Navigation Section Tabs */}
       <SectionTabs
         activeTab={activeTab}
         onSelectTab={setActiveTab}
@@ -67,7 +72,7 @@ export default function CommunicationCoachPage() {
               />
             ))
           ) : (
-            <div className="p-8 bg-surface border border-border rounded-lg text-center space-y-2">
+            <div className="p-8 bg-surface border border-border rounded-card text-center space-y-2 shadow-card">
               <p className="font-heading font-bold text-ink text-base">
                 No coaching cards in this section
               </p>

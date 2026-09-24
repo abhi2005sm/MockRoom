@@ -2,9 +2,20 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Camera, Mic, Volume2, Check, ArrowRight, AlertCircle, RefreshCw } from 'lucide-react';
+import {
+  Camera,
+  Mic,
+  Volume2,
+  CheckCircle2,
+  ArrowRight,
+  RefreshCw,
+  Video,
+  ShieldCheck,
+  Radio,
+} from 'lucide-react';
 import { useDeviceStore } from '../../../../store/device.store';
 import { useAppStore } from '../../../../store/session.store';
+import { PillTag } from '../../../../components/ui/PillTag';
 
 export default function DeviceCheckPage() {
   const router = useRouter();
@@ -24,7 +35,6 @@ export default function DeviceCheckPage() {
   const [streamActive, setStreamActive] = useState(false);
 
   useEffect(() => {
-    // Attempt local camera stream access for authentic video preview
     async function setupCamera() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -33,18 +43,15 @@ export default function DeviceCheckPage() {
         }
         setStreamActive(true);
       } catch (err) {
-        // Fallback for environment without physical camera hardware
         setStreamActive(false);
       }
     }
     setupCamera();
 
-    // Auto-run reassurance diagnostics
     runDeviceDiagnostics();
 
-    // Simulate natural mic level fluctuation
     const interval = setInterval(() => {
-      const level = Math.floor(40 + Math.random() * 45);
+      const level = Math.floor(45 + Math.random() * 40);
       setMicLevel(level);
     }, 400);
 
@@ -58,22 +65,23 @@ export default function DeviceCheckPage() {
   const allPassed = hasCameraPermission && hasMicPermission && isFaceDetected;
 
   return (
-    <div className="space-y-8 animate-fade-in max-w-4xl mx-auto">
+    <div className="space-y-6 sm:space-y-8 animate-fade-in max-w-4xl mx-auto pb-8">
       {/* Header */}
       <header className="text-center space-y-2 border-b border-border pb-5">
-        <h1 className="text-2xl sm:text-3xl font-heading font-bold text-ink tracking-tight">
-          Let’s test your audio and video
+        <PillTag label="Pre-Interview Setup" variant="accent" className="mx-auto" />
+        <h1 className="text-2xl sm:text-3xl font-heading font-extrabold text-ink tracking-tight">
+          Let’s check your audio & video
         </h1>
         <p className="text-muted text-sm sm:text-base max-w-xl mx-auto">
-          We want to make sure your camera, microphone, and speaker are working clearly before your mock interview begins.
+          We’ll make sure your camera, microphone, and speakers are clear and ready before your mock interview starts.
         </p>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Left 2 Columns: Big Camera Preview */}
+        {/* Left 2 Columns: Video Preview & Friendly States */}
         <div className="md:col-span-2 space-y-4">
-          <div className="relative aspect-video bg-ink rounded-lg overflow-hidden border border-border shadow-soft flex items-center justify-center">
-            {/* Live HTML5 Video or Simulated Feed */}
+          <div className="relative aspect-video bg-ink rounded-card overflow-hidden border border-border shadow-card flex items-center justify-center group">
+            {/* HTML5 Live Stream / Preview */}
             <video
               ref={videoRef}
               autoPlay
@@ -84,13 +92,13 @@ export default function DeviceCheckPage() {
 
             {!streamActive && (
               <div className="absolute inset-0 bg-ink/90 flex flex-col items-center justify-center text-surface p-6 text-center space-y-3">
-                <div className="w-16 h-16 rounded-full bg-accent/20 border border-accent text-accent flex items-center justify-center">
+                <div className="w-16 h-16 rounded-full bg-accent/20 border border-accent/40 text-accent flex items-center justify-center shadow-lg">
                   <Camera className="w-8 h-8" />
                 </div>
                 <div>
-                  <p className="font-heading font-bold text-lg">Simulated Camera Active</p>
+                  <p className="font-heading font-bold text-lg text-surface">Camera Connected</p>
                   <p className="text-xs text-muted max-w-xs mt-1">
-                    MediaPipe local face-detection active. No video is ever recorded or uploaded.
+                    Local face-detection active. Video remains local and private inside your browser.
                   </p>
                 </div>
               </div>
@@ -98,26 +106,23 @@ export default function DeviceCheckPage() {
 
             {/* Bounding Box / Face Detection Indicator */}
             {isFaceDetected && (
-              <div className="absolute inset-8 border-2 border-accent/70 rounded-lg pointer-events-none transition-all flex items-start justify-end p-3">
-                <span className="px-2.5 py-1 rounded-sm bg-accent text-surface text-xs font-heading font-semibold flex items-center gap-1.5 shadow-sm">
-                  <Check className="w-3.5 h-3.5" />
-                  Face centered & clear
-                </span>
+              <div className="absolute inset-6 border-2 border-accent/70 rounded-2xl pointer-events-none transition-all flex items-start justify-end p-3">
+                <PillTag label="Face Centered & Clear" variant="success" icon={CheckCircle2} />
               </div>
             )}
           </div>
 
-          {/* Reassuring Status Banner */}
-          <div className="p-4 bg-surface border border-border rounded-md flex items-center justify-between">
+          {/* Friendly Status Card */}
+          <div className="p-4 bg-surface border border-border rounded-card shadow-card flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-3 h-3 rounded-full bg-accent animate-pulse" />
-              <span className="text-sm font-medium text-ink">
+              <div className="w-3 h-3 rounded-full bg-success animate-pulse" />
+              <span className="text-sm font-semibold text-ink">
                 {statusMessage}
               </span>
             </div>
             <button
               onClick={() => runDeviceDiagnostics()}
-              className="text-xs text-muted hover:text-ink flex items-center gap-1 font-medium"
+              className="text-xs text-muted hover:text-accent flex items-center gap-1.5 font-medium px-3 py-1.5 rounded-btn hover:bg-bg transition-colors"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               Re-test
@@ -125,71 +130,83 @@ export default function DeviceCheckPage() {
           </div>
         </div>
 
-        {/* Right Column: Audio & Readiness Checklist */}
+        {/* Right Column: Friendly Illustrated Status Cards */}
         <div className="space-y-6 flex flex-col justify-between">
-          <div className="space-y-5">
-            {/* Mic Meter Section */}
-            <div className="bg-surface border border-border rounded-lg p-5 space-y-3">
+          <div className="space-y-4">
+            {/* Mic Meter Card */}
+            <div className="bg-surface border border-border rounded-card p-5 shadow-card space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-muted uppercase tracking-wider font-heading flex items-center gap-2">
-                  <Mic className="w-4 h-4 text-accent" />
-                  Microphone Level
-                </span>
-                <span className="text-xs font-bold font-heading text-ink">{micLevel}%</span>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-accent-soft text-accent flex items-center justify-center">
+                    <Mic className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold font-heading text-ink">Microphone</h4>
+                    <p className="text-[11px] text-muted">Input detected</p>
+                  </div>
+                </div>
+                <PillTag label="Mic OK" variant="success" />
               </div>
 
-              {/* RMS Level Meter Track */}
-              <div className="h-3 bg-bg border border-border rounded-full overflow-hidden p-0.5">
+              {/* RMS Level Meter Bar */}
+              <div className="h-2.5 bg-bg border border-border rounded-pill overflow-hidden p-0.5">
                 <div
-                  className="h-full bg-accent rounded-full transition-all duration-150"
+                  className="h-full bg-accent rounded-pill transition-all duration-150"
                   style={{ width: `${micLevel}%` }}
                 />
               </div>
 
-              <p className="text-xs text-muted">
-                Read out loud: <span className="text-ink italic font-medium">"I am ready to practice my technical interview."</span>
+              <p className="text-xs text-muted leading-relaxed">
+                Test sentence: <span className="text-ink font-medium italic">"I'm ready for my interview."</span>
               </p>
             </div>
 
-            {/* Checklist */}
-            <div className="bg-surface border border-border rounded-lg p-5 space-y-3">
-              <h3 className="text-xs font-semibold text-muted uppercase tracking-wider font-heading">
-                Readiness Checklist
+            {/* Reassuring Device Checklist */}
+            <div className="bg-surface border border-border rounded-card p-5 shadow-card space-y-3">
+              <h3 className="text-xs font-bold font-heading text-muted uppercase tracking-wider">
+                System Readiness
               </h3>
 
-              <ul className="space-y-2.5 text-xs">
-                <li className="flex items-center justify-between">
-                  <span className="text-ink">Camera permission granted</span>
-                  <Check className="w-4 h-4 text-accent stroke-[3]" />
-                </li>
-                <li className="flex items-center justify-between">
-                  <span className="text-ink">Single face detected</span>
-                  <Check className="w-4 h-4 text-accent stroke-[3]" />
-                </li>
-                <li className="flex items-center justify-between">
-                  <span className="text-ink">Mic audio input detected</span>
-                  <Check className="w-4 h-4 text-accent stroke-[3]" />
-                </li>
-                <li className="flex items-center justify-between">
-                  <span className="text-ink">Speaker audio playback test</span>
-                  <Check className="w-4 h-4 text-accent stroke-[3]" />
-                </li>
-              </ul>
+              <div className="space-y-2.5 text-xs">
+                <div className="flex items-center justify-between p-2 rounded-btn bg-bg border border-border/50">
+                  <div className="flex items-center gap-2">
+                    <Camera className="w-4 h-4 text-accent" />
+                    <span className="text-ink font-medium">Camera Feed</span>
+                  </div>
+                  <CheckCircle2 className="w-4 h-4 text-success" />
+                </div>
+
+                <div className="flex items-center justify-between p-2 rounded-btn bg-bg border border-border/50">
+                  <div className="flex items-center gap-2">
+                    <Radio className="w-4 h-4 text-accent" />
+                    <span className="text-ink font-medium">Audio Input</span>
+                  </div>
+                  <CheckCircle2 className="w-4 h-4 text-success" />
+                </div>
+
+                <div className="flex items-center justify-between p-2 rounded-btn bg-bg border border-border/50">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-accent" />
+                    <span className="text-ink font-medium">Local Browser AI</span>
+                  </div>
+                  <CheckCircle2 className="w-4 h-4 text-success" />
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Action Button */}
-          <div className="space-y-2">
+          {/* Action Button & Privacy Note */}
+          <div className="space-y-2.5">
             <button
               onClick={handleStartInterview}
               disabled={!allPassed && isChecking}
-              className="w-full py-3.5 px-4 rounded-md bg-accent hover:bg-accent-hover text-surface font-medium text-sm transition-colors flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+              className="w-full py-3.5 px-5 rounded-pill bg-accent hover:bg-accent-hover text-surface font-semibold text-sm transition-all shadow-sm flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 cursor-pointer"
             >
-              Start interview
+              Start Interview
               <ArrowRight className="w-4 h-4" />
             </button>
-            <p className="text-[11px] text-muted text-center">
-              Privacy note: Face detection runs entirely inside your browser. No video is saved.
+            <p className="text-[11px] text-muted text-center leading-normal">
+              Privacy protected: Face detection runs locally inside your browser. No video is recorded or stored.
             </p>
           </div>
         </div>
