@@ -23,9 +23,11 @@ import {
   RETRY_MISTAKES_DATA,
   WEAK_AREAS_DATA,
 } from '../lib/mock-data';
+import { api } from '../lib/api';
 
 interface LiveSessionState {
   id: string;
+  wsToken?: string;
   jobTitle: string;
   company: string;
   currentRoundIndex: number;
@@ -55,19 +57,23 @@ interface AppStoreState {
   retryQueue: RetryQuestion[];
   answerLibrary: AnswerLibraryItem[];
 
-  setJobTarget: (jdText: string, resumeName?: string, date?: string) => void;
+  setJobTarget: (jdText: string, resumeName?: string, date?: string) => Promise<void>;
   updateSkillConfidence: (skillId: string, delta: number) => void;
-  setMode: (modeId: any) => void;
-  setPersona: (personaId: string) => void;
+  setMode: (modeId: any) => Promise<void>;
+  setPersona: (personaId: string) => Promise<void>;
   
-  startLiveSession: () => void;
+  startLiveSession: () => Promise<void>;
   togglePauseSession: () => void;
-  endLiveSession: () => void;
+  endLiveSession: () => Promise<void>;
   submitCandidateAnswer: (text: string, kind?: 'text' | 'code') => void;
   triggerWarning: (type: 'face' | 'mic' | 'network', message: string) => void;
   clearWarning: () => void;
   
-  addPracticeAttempt: (coachingSectionId: string, attemptText: string) => void;
+  handleServerCaptions: (text: string, turnId: string) => void;
+  handleServerState: (data: any) => void;
+  handleSessionEnded: () => void;
+
+  addPracticeAttempt: (coachingSectionId: string, attemptText: string) => Promise<void>;
   removeRetryQuestion: (id: string) => void;
 }
 
@@ -141,7 +147,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   retryQueue: RETRY_MISTAKES_DATA,
   answerLibrary: ANSWER_LIBRARY_DATA,
 
-  setJobTarget: (jdText, resumeName, date) => {
+  setJobTarget: async (jdText, resumeName, date) => {
     set((state) => ({
       jobAnalysis: {
         ...state.jobAnalysis,
@@ -150,6 +156,30 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         targetInterviewDate: date || state.jobAnalysis.targetInterviewDate,
       },
     }));
+
+    try {
+      const res = await api.createJob({
+        title: get().jobAnalysis.jobTitle,
+        company: get().jobAnalysis.company,
+        experienceLevel: get().jobAnalysis.experienceLevel,
+        jdText,
+        resumeText: resumeName,
+        targetInterviewDate: date,
+      });
+
+      if (res && res.parsedSkills) {
+        set((state) => ({
+          jobAnalysis: {
+            ...state.jobAnalysis,
+            id: res.id,
+            parsedSkills: res.parsedSkills,
+            focusAreas: res.focusAreas || state.jobAnalysis.focusAreas,
+          },
+        }));
+      }
+    } catch {
+      // Retain mock fallback
+    }
   },
 
   updateSkillConfidence: (skillId, delta) => {
@@ -163,14 +193,18 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     }));
   },
 
-  setMode: (modeId) => {
+  setMode: async (modeId) => {
     set((state) => ({
       activeModeId: modeId,
       plan: { ...state.plan, mode: modeId },
     }));
+
+    try {
+      await api.updatePlan(get().plan.id, { mode: modeId });
+    } catch {}
   },
 
-  setPersona: (personaId) => {
+  setPersona: async (personaId) => {
     const found = PERSONAS.find((p) => p.id === personaId);
     if (found) {
       set((state) => ({
@@ -178,13 +212,33 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         plan: { ...state.plan, personaId },
       }));
     }
+
+    try {
+      await api.updatePlan(get().plan.id, { personaId });
+    } catch {}
   },
 
-  startLiveSession: () => {
+  startLiveSession: async () => {
     const firstQ = SAMPLE_QUESTIONS[0];
+    let sessionId = `sess-${Date.now()}`;
+    let wsToken: string | undefined = undefined;
+
+    try {
+      const res = await api.createSession({
+        planId: get().plan.id || 'plan-101',
+        mode: get().activeModeId,
+        personaId: get().activePersona.id,
+      });
+      if (res && res.sessionId) {
+        sessionId = res.sessionId;
+        wsToken = res.wsToken;
+      }
+    } catch {}
+
     set({
       liveSession: {
-        id: `sess-${Date.now()}`,
+        id: sessionId,
+        wsToken,
         jobTitle: get().jobAnalysis.jobTitle,
         company: get().jobAnalysis.company,
         currentRoundIndex: 0,
@@ -198,7 +252,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         turns: [
           {
             id: `turn-1`,
-            sessionId: `sess-${Date.now()}`,
+            sessionId,
             round: firstQ.round,
             seq: 1,
             speaker: 'interviewer',
@@ -219,10 +273,19 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     }));
   },
 
-  endLiveSession: () => {
+  endLiveSession: async () => {
+    const session = get().liveSession;
     set((state) => ({
       liveSession: { ...state.liveSession, isAudioStreaming: false, isInterviewerSpeaking: false },
     }));
+
+    try {
+      await api.endSession(session.id);
+      const reportData = await api.getSessionReport(session.id);
+      if (reportData) {
+        set({ report: reportData });
+      }
+    } catch {}
   },
 
   submitCandidateAnswer: (text, kind = 'text') => {
@@ -283,6 +346,44 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     });
   },
 
+  handleServerCaptions: (text, turnId) => {
+    const session = get().liveSession;
+    const newTurn: Turn = {
+      id: turnId || `turn-int-${Date.now()}`,
+      sessionId: session.id,
+      round: 'Active Round',
+      seq: session.turns.length + 1,
+      speaker: 'interviewer',
+      text,
+      startMs: Date.now(),
+      endMs: Date.now() + 3000,
+    };
+
+    set({
+      liveSession: {
+        ...session,
+        isInterviewerSpeaking: true,
+        isCandidateSpeaking: false,
+        interviewerCaption: text,
+        turns: [...session.turns, newTurn],
+      },
+    });
+  },
+
+  handleServerState: (data) => {
+    if (!data) return;
+    set((state) => ({
+      liveSession: {
+        ...state.liveSession,
+        timeRemainingSeconds: data.timeRemaining || state.liveSession.timeRemainingSeconds,
+      },
+    }));
+  },
+
+  handleSessionEnded: async () => {
+    get().endLiveSession();
+  },
+
   triggerWarning: (type, message) => {
     set((state) => ({
       liveSession: {
@@ -301,8 +402,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     }));
   },
 
-  addPracticeAttempt: (coachingSectionId, attemptText) => {
-    const newAttempt: PracticeAttempt = {
+  addPracticeAttempt: async (coachingSectionId, attemptText) => {
+    let newAttempt: PracticeAttempt = {
       id: `prac-${Date.now()}`,
       coachingSectionId,
       attemptText,
@@ -310,6 +411,20 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       comparedToOriginalDelta: 12,
       createdAt: new Date().toISOString(),
     };
+
+    try {
+      const res = await api.submitPracticeAttempt(coachingSectionId, attemptText);
+      if (res && res.id) {
+        newAttempt = {
+          id: res.id,
+          coachingSectionId,
+          attemptText: res.attemptText,
+          score: res.score,
+          comparedToOriginalDelta: res.comparedToOriginalDelta,
+          createdAt: res.createdAt,
+        };
+      }
+    } catch {}
 
     set((state) => ({
       practiceAttempts: [newAttempt, ...state.practiceAttempts],

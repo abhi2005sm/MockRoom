@@ -3,6 +3,8 @@ export interface LlmCompletionOptions {
   userPrompt: string;
   temperature?: number;
   maxTokens?: number;
+  onChunk?: (chunk: string) => void;
+  promptVersion?: string;
 }
 
 export interface LlmProvider {

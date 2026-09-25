@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { PracticeScoringService } from './practice-scoring.service';
 import { buildCoachingRewritePrompt, COACHING_REWRITE_PROMPT_VERSION } from './prompts/coaching-rewrite.prompt';
 import { PrismaService } from '../../database/prisma.service';
+import { LlmProvider } from '../ai/interfaces/llm.provider';
 
 const mockCoachingSections = new Map<string, any>();
 
@@ -12,6 +13,7 @@ export class CoachingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly practiceScoring: PracticeScoringService,
+    @Optional() @Inject('LLM_PROVIDER') private readonly llmProvider?: LlmProvider
   ) {
     this.seedDefaultMockSections();
   }
@@ -67,6 +69,34 @@ export class CoachingService {
 
   async generateCoachingSections(sessionId: string) {
     this.logger.log(`Generating coaching sections for session ${sessionId} using Prompt ${COACHING_REWRITE_PROMPT_VERSION}`);
+
+    if (this.llmProvider) {
+      try {
+        const prompt = buildCoachingRewritePrompt({
+          jobTitle: 'Senior Frontend Engineer',
+          sectionType: 'technical',
+          questionText: 'Can you describe a specific technical challenge you faced when scaling React component state?',
+          originalText: 'In my previous project, we refactored our component state to prevent unnecessary re-renders...',
+        });
+
+        const res = await this.llmProvider.generateStructuredJson<any>(
+          {
+            systemPrompt: prompt,
+            userPrompt: 'Rewrite candidate answer into high-impact STAR response.',
+            temperature: 0.1,
+            promptVersion: COACHING_REWRITE_PROMPT_VERSION,
+          },
+          'coaching-rewrite'
+        );
+
+        if (res && res.sections && res.sections.length > 0) {
+          return res.sections;
+        }
+      } catch (err: any) {
+        this.logger.warn(`LLM coaching rewrite generation failed: ${err.message}. Using default sections.`);
+      }
+    }
+
     return Array.from(mockCoachingSections.values());
   }
 
@@ -122,7 +152,6 @@ export class CoachingService {
       createdAt: new Date(),
     };
 
-    // Update section practiced status
     section.practiced = true;
     try {
       await this.prisma.coachingSection.update({

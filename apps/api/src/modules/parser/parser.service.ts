@@ -1,15 +1,40 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, Optional } from '@nestjs/common';
 import { buildJdParserPrompt, JdParserInput, JD_PARSER_PROMPT_VERSION } from './prompts/jd-parser.prompt';
+import { LlmProvider } from '../ai/interfaces/llm.provider';
 
 @Injectable()
 export class ParserService {
   private readonly logger = new Logger(ParserService.name);
 
+  constructor(
+    @Optional() @Inject('LLM_PROVIDER') private readonly llmProvider?: LlmProvider
+  ) {}
+
   async parseJdAndResume(input: JdParserInput) {
     const prompt = buildJdParserPrompt(input);
     this.logger.log(`Executing JD Parser Prompt ${JD_PARSER_PROMPT_VERSION} for job: ${input.jobTitle}`);
 
-    // Return structured fixture JSON (can be replaced by real Claude LLM provider)
+    if (this.llmProvider) {
+      try {
+        const result = await this.llmProvider.generateStructuredJson<any>(
+          {
+            systemPrompt: prompt,
+            userPrompt: 'Parse the provided JD and resume into structured skills and focus areas.',
+            temperature: 0.1,
+            promptVersion: JD_PARSER_PROMPT_VERSION,
+          },
+          'jd-parser'
+        );
+
+        if (result && result.parsedSkills) {
+          return result;
+        }
+      } catch (err: any) {
+        this.logger.warn(`LLM JD Parsing failed: ${err.message}. Falling back to default fixture.`);
+      }
+    }
+
+    // Return structured fixture JSON fallback
     return {
       parsedSkills: [
         {

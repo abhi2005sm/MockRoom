@@ -6,8 +6,10 @@ import { PracticeScoringService } from './practice-scoring.service';
 import { CoachingProcessor } from './coaching.processor';
 import { TipRefreshProcessor } from './tip-refresh.processor';
 import { PrismaService } from '../../database/prisma.service';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
+  imports: [AiModule],
   controllers: [CoachingController],
   providers: [
     CoachingService,
