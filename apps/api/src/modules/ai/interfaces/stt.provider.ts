@@ -3,6 +3,7 @@ export interface SttTranscriptResult {
   isFinal: boolean;
   startMs: number;
   endMs: number;
+  words?: Array<{ word: string; startMs: number; endMs: number; confidence?: number }>;
 }
 
 export interface SttProvider {

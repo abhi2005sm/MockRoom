@@ -1,8 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { MetricsService } from './metrics.service';
 import { ScoringService } from './scoring.service';
 import { buildEvaluatorPrompt, EVALUATOR_PROMPT_VERSION } from './prompts/evaluator.prompt';
 import { PrismaService } from '../../database/prisma.service';
+import { LlmProvider } from '../ai/interfaces/llm.provider';
 
 const mockReports = new Map<string, any>();
 
@@ -14,12 +15,12 @@ export class ReportService {
     private readonly prisma: PrismaService,
     private readonly metricsService: MetricsService,
     private readonly scoringService: ScoringService,
+    @Optional() @Inject('LLM_PROVIDER') private readonly llmProvider?: LlmProvider
   ) {}
 
   async generateReport(sessionId: string) {
     this.logger.log(`Generating evaluation report for session ${sessionId}`);
 
-    // Fetch turns or mock turns
     let turns = [];
     try {
       turns = await this.prisma.turn.findMany({ where: { sessionId }, orderBy: { seq: 'asc' } });
@@ -42,7 +43,7 @@ export class ReportService {
 
     this.logger.log(`Evaluator Prompt ${EVALUATOR_PROMPT_VERSION} built for session ${sessionId}`);
 
-    const categories = [
+    let categories = [
       { name: 'technical', score: 84, summary: 'Strong grasp of React architecture and state synchronization.' },
       { name: 'communication', score: 78, summary: 'Clear STAR structure; minor filler usage on complex topics.' },
       { name: 'coding', score: 85, summary: 'Debounce function passed all unit test cases.' },
@@ -51,6 +52,26 @@ export class ReportService {
       { name: 'presence', score: 92, summary: `Face visible ${metrics.faceVisiblePct}% of session.` },
       { name: 'professionalism', score: 90, summary: 'Punctual, clear audio setup.' },
     ];
+
+    if (this.llmProvider) {
+      try {
+        const structuredReport = await this.llmProvider.generateStructuredJson<any>(
+          {
+            systemPrompt: prompt,
+            userPrompt: 'Evaluate candidate performance and generate full JSON report.',
+            temperature: 0.1,
+            promptVersion: EVALUATOR_PROMPT_VERSION,
+          },
+          'evaluator'
+        );
+
+        if (structuredReport && structuredReport.overallScore !== undefined) {
+          categories = structuredReport.categories || categories;
+        }
+      } catch (err: any) {
+        this.logger.warn(`LLM report generation failed: ${err.message}. Using scoring engine metrics fallback.`);
+      }
+    }
 
     const { overallScore, verdict } = this.scoringService.calculateOverallScore(categories);
 
@@ -87,7 +108,6 @@ export class ReportService {
       generatedAt: new Date().toISOString(),
     };
 
-    // Idempotent database upsert keyed on sessionId
     try {
       await this.prisma.report.upsert({
         where: { sessionId },
@@ -115,7 +135,6 @@ export class ReportService {
     const mock = mockReports.get(sessionId);
     if (mock) return mock;
 
-    // Generate fallback report for 'sess-892' for quick dev testing
     if (sessionId === 'sess-892') {
       return this.generateReport('sess-892');
     }
