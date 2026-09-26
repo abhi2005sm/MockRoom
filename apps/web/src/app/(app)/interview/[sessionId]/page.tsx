@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Pause, Play, Square, AlertCircle, Camera, Mic, Volume2 } from 'lucide-react';
+import { Pause, Play, Square, AlertCircle, Camera, Mic, Volume2, VolumeX } from 'lucide-react';
 import { useAppStore } from '../../../../store/session.store';
 import { InterviewerPanel } from '../../../../components/interview/InterviewerPanel';
 import { CandidateCamera } from '../../../../components/interview/CandidateCamera';
@@ -11,6 +11,8 @@ import { TimerBar } from '../../../../components/interview/TimerBar';
 import { WarningBanner } from '../../../../components/interview/WarningBanner';
 import { TerminalPanel } from '../../../../components/interview/TerminalPanel';
 import { CodeEditorPanel } from '../../../../components/interview/CodeEditorPanel';
+import { useRealtimeSocket } from '../../../../hooks/useRealtimeSocket';
+import { globalAudioPlayer } from '../../../../lib/audio-player';
 
 export default function LiveInterviewRoomPage() {
   const router = useRouter();
@@ -25,7 +27,13 @@ export default function LiveInterviewRoomPage() {
     clearWarning,
   } = useAppStore();
 
+  const { sendObjectState, sendTerminalSubmit, sendAudioChunk, unlockAudioPlayback } = useRealtimeSocket(
+    liveSession.wsToken || 'demo-token',
+    liveSession.id
+  );
+
   const [time, setTime] = useState(liveSession.timeRemainingSeconds);
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
   const currentRound = plan.rounds[liveSession.currentRoundIndex] || plan.rounds[0];
   const isCodingRound = currentRound?.name.toLowerCase().includes('coding') || liveSession.currentQuestionIndex === 3;
 
@@ -39,13 +47,34 @@ export default function LiveInterviewRoomPage() {
     return () => clearInterval(timer);
   }, [liveSession.isPaused]);
 
+  const handleUserAudioUnlock = () => {
+    unlockAudioPlayback();
+    if (!audioUnlocked) {
+      setAudioUnlocked(true);
+      globalAudioPlayer.speakText(liveSession.interviewerCaption);
+    }
+  };
+
+  const handleReplayInterviewerSpeech = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    unlockAudioPlayback();
+    setAudioUnlocked(true);
+    globalAudioPlayer.speakText(liveSession.interviewerCaption);
+  };
+
   const handleEndSession = () => {
     endLiveSession();
     router.push('/report/sess-892');
   };
 
+  const handleAnswerSubmit = (text: string, kind: 'text' | 'code' = 'text') => {
+    handleUserAudioUnlock();
+    submitCandidateAnswer(text, kind);
+    sendTerminalSubmit(text, kind);
+  };
+
   return (
-    <div className="space-y-6 animate-fade-in max-w-6xl mx-auto">
+    <div onClick={handleUserAudioUnlock} className="space-y-6 animate-fade-in max-w-6xl mx-auto">
       {/* Top Header: Unobtrusive Timer & Control Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
         <TimerBar
@@ -56,13 +85,21 @@ export default function LiveInterviewRoomPage() {
           modeName={plan.mode.toUpperCase()}
         />
 
-        {/* Live Controls: Pause / End Session */}
+        {/* Live Controls: Replay Voice / Pause / End Session */}
         <div className="flex items-center justify-end gap-2">
           <button
-            onClick={() => triggerWarning('mic', "We can't hear you — try speaking closer to the mic")}
+            onClick={handleReplayInterviewerSpeech}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-surface text-xs font-semibold font-heading rounded hover:bg-accent-hover transition-colors shadow-xs"
+          >
+            <Volume2 className="w-3.5 h-3.5" />
+            {audioUnlocked ? 'Replay Voice' : 'Start Voice Audio'}
+          </button>
+
+          <button
+            onClick={() => triggerWarning('phone', "Phone detected in camera frame. Please place it out of view.")}
             className="px-2.5 py-1 bg-surface border border-border text-[11px] font-medium text-muted hover:text-ink rounded"
           >
-            Simulate Mic Warning
+            Simulate Phone Warning
           </button>
           <button
             onClick={togglePauseSession}
@@ -108,12 +145,13 @@ export default function LiveInterviewRoomPage() {
           {/* Conditional Input Area: Code Editor Panel during Coding Round, else Terminal Panel */}
           {isCodingRound ? (
             <CodeEditorPanel
-              onSubmitCode={(code) => submitCandidateAnswer(code, 'code')}
+              onSubmitCode={(code) => handleAnswerSubmit(code, 'code')}
               output={liveSession.codeOutput}
             />
           ) : (
             <TerminalPanel
-              onSubmitAnswer={(text) => submitCandidateAnswer(text, 'text')}
+              onSubmitAnswer={(text) => handleAnswerSubmit(text, 'text')}
+              onAudioChunk={sendAudioChunk}
             />
           )}
         </div>
@@ -128,6 +166,8 @@ export default function LiveInterviewRoomPage() {
             <CandidateCamera
               isCandidateSpeaking={liveSession.isCandidateSpeaking}
               isFaceDetected={true}
+              onPhoneDetected={() => sendObjectState('phone_detected')}
+              onPhoneCleared={() => sendObjectState('phone_cleared')}
             />
           </div>
 

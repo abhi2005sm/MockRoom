@@ -79,8 +79,16 @@ export class RealtimeWsClient {
     this.send('client.terminal.submit', { text, kind, questionId });
   }
 
+  sendAudioChunk(base64Chunk: string) {
+    this.send('audio.chunk', { chunk: base64Chunk });
+  }
+
   sendFaceState(state: 'lost' | 'found', at: number = Date.now()) {
     this.send('client.face', { state, at });
+  }
+
+  sendObjectState(type: 'phone_detected' | 'phone_cleared', at: number = Date.now()) {
+    this.send('client.object', { type, at });
   }
 
   sendInterrupt() {

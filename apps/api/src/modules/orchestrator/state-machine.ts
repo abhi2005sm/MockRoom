@@ -62,7 +62,15 @@ export class InterviewStateMachine {
     this.ctx.isPaused = true;
   }
 
+  pauseTimer() {
+    this.ctx.isPaused = true;
+  }
+
   resume() {
+    this.ctx.isPaused = false;
+  }
+
+  resumeTimer() {
     this.ctx.isPaused = false;
   }
 

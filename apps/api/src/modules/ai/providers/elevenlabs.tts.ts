@@ -80,6 +80,9 @@ export class ElevenLabsTtsProvider implements TtsProvider {
         if (value) {
           const chunkBuf = Buffer.from(value);
           chunks.push(chunkBuf);
+          this.logger.log(
+            `[ElevenLabsTtsProvider] Received TTS audio chunk of ${chunkBuf.length} bytes from vendor stream`
+          );
           if (options.onAudioChunk) {
             options.onAudioChunk(chunkBuf);
           }

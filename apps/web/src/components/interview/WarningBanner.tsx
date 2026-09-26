@@ -1,10 +1,10 @@
 'use client';
 
 import React from 'react';
-import { AlertTriangle, Camera, Mic, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, Camera, Mic, WifiOff, Smartphone, X } from 'lucide-react';
 
 interface WarningBannerProps {
-  type: 'face' | 'mic' | 'network';
+  type: 'face' | 'mic' | 'network' | 'phone';
   message: string;
   onDismiss?: () => void;
 }
@@ -15,6 +15,7 @@ export function WarningBanner({ type, message, onDismiss }: WarningBannerProps) 
       case 'face': return Camera;
       case 'mic': return Mic;
       case 'network': return WifiOff;
+      case 'phone': return Smartphone;
       default: return AlertTriangle;
     }
   };

@@ -11,6 +11,7 @@ import { Logger, Inject, Optional } from '@nestjs/common';
 import { Server, WebSocket } from 'ws';
 import { AuthService } from '../auth/auth.service';
 import { OrchestratorService } from '../orchestrator/orchestrator.service';
+import { WarningService } from '../orchestrator/warning.service';
 import { SttProvider } from '../ai/interfaces/stt.provider';
 
 const getAllowedOrigins = () => {
@@ -34,6 +35,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   constructor(
     private readonly authService: AuthService,
     private readonly orchestratorService: OrchestratorService,
+    private readonly warningService: WarningService,
     @Optional() @Inject('STT_PROVIDER') private readonly sttProvider?: SttProvider
   ) {}
 
@@ -135,6 +137,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
     if (!buffer.length) return;
 
+    this.logger.log(`[RealtimeGateway] Received audio.chunk frame of ${buffer.length} bytes for session ${sessionId}`);
+
     if (this.sttProvider) {
       try {
         const transcriptResult = await this.sttProvider.transcribeChunk(buffer);
@@ -189,6 +193,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         (tokenDelta) => {
           // Token-by-token streaming response to client
           this.sendJson(client, 'server.interviewer.stream', { delta: tokenDelta });
+        },
+        (audioBuf) => {
+          // Send synthesized TTS audio chunk to client over WebSocket
+          this.sendJson(client, 'server.audio.chunk', {
+            chunk: audioBuf.toString('base64'),
+          });
         }
       );
 
@@ -207,10 +217,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     } catch (err: any) {
       this.logger.error(`Error processing turn: ${err.message}`);
 
-      // Graceful fallback warning to client without breaking session
+      // Surfacing explicit warning event so frontend knows pipeline degraded
       this.sendJson(client, 'server.warning', {
         type: 'tts',
-        message: 'TTS/LLM processing encounter a temporary issue; displaying captions.',
+        message: 'TTS/LLM processing encountered a temporary issue; displaying captions.',
       });
     }
   }
@@ -225,6 +235,25 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         type: 'face',
         message: 'Face camera feed lost. Please position your face clearly in frame.',
       });
+    }
+  }
+
+  @SubscribeMessage('client.object')
+  async handleClientObject(
+    @ConnectedSocket() client: WebSocket & { sessionId?: string },
+    @MessageBody() payload: { type: 'phone_detected' | 'phone_cleared'; at: number }
+  ) {
+    const sessionId = client.sessionId || 'sess-892';
+    this.logger.log(`[RealtimeGateway] Received client.object event (${payload.type}) for session ${sessionId}`);
+
+    if (payload.type === 'phone_detected') {
+      await this.warningService.handlePhoneDetected(client, sessionId, (c, event, p) =>
+        this.sendJson(c, event, p)
+      );
+    } else if (payload.type === 'phone_cleared') {
+      await this.warningService.handlePhoneCleared(client, sessionId, (c, event, p) =>
+        this.sendJson(c, event, p)
+      );
     }
   }
 
