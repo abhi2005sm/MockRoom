@@ -24,6 +24,7 @@ import {
   WEAK_AREAS_DATA,
 } from '../lib/mock-data';
 import { api } from '../lib/api';
+import { globalAudioPlayer } from '../lib/audio-player';
 
 interface LiveSessionState {
   id: string;
@@ -39,7 +40,7 @@ interface LiveSessionState {
   isCandidateSpeaking: boolean;
   interviewerCaption: string;
   turns: Turn[];
-  activeWarning: { type: 'face' | 'mic' | 'network'; message: string } | null;
+  activeWarning: { type: 'face' | 'mic' | 'network' | 'phone'; message: string } | null;
   codeOutput: { stdout: string; stderr: string; passed: boolean; testCases: { name: string; passed: boolean }[] } | null;
 }
 
@@ -66,7 +67,7 @@ interface AppStoreState {
   togglePauseSession: () => void;
   endLiveSession: () => Promise<void>;
   submitCandidateAnswer: (text: string, kind?: 'text' | 'code') => void;
-  triggerWarning: (type: 'face' | 'mic' | 'network', message: string) => void;
+  triggerWarning: (type: 'face' | 'mic' | 'network' | 'phone', message: string) => void;
   clearWarning: () => void;
   
   handleServerCaptions: (text: string, turnId: string) => void;
@@ -332,6 +333,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       endMs: Date.now() + 4000,
     };
 
+    globalAudioPlayer.speakText(nextQ.interviewerIntro);
+
     set({
       liveSession: {
         ...session,
@@ -358,6 +361,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       startMs: Date.now(),
       endMs: Date.now() + 3000,
     };
+
+    globalAudioPlayer.speakText(text);
 
     set({
       liveSession: {
