@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Pause, Play, Square, AlertCircle, Camera, Mic, Volume2, VolumeX } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { Pause, Play, Square, Volume2, Mic, MicOff } from 'lucide-react';
 import { useAppStore } from '../../../../store/session.store';
 import { InterviewerPanel } from '../../../../components/interview/InterviewerPanel';
 import { CandidateCamera } from '../../../../components/interview/CandidateCamera';
@@ -12,46 +12,123 @@ import { WarningBanner } from '../../../../components/interview/WarningBanner';
 import { TerminalPanel } from '../../../../components/interview/TerminalPanel';
 import { CodeEditorPanel } from '../../../../components/interview/CodeEditorPanel';
 import { useRealtimeSocket } from '../../../../hooks/useRealtimeSocket';
+import { useMicLevel } from '../../../../hooks/useMicLevel';
 import { globalAudioPlayer } from '../../../../lib/audio-player';
+import { INTERVIEW_MODES } from '../../../../lib/shared/constants';
+
+const FACE_LOST_MSG = "I can't see you on camera. Please move back into frame.";
+const FACE_LOST_SPEECH = "I can't see you on camera right now. Could you move back into frame?";
+const MIC_SILENT_MSG = "I can't hear you. Check that your microphone is on.";
+const MIC_SILENT_SPEECH =
+  "I'm not catching any audio on my side. Could you check that your microphone is unmuted?";
+const MULTI_FACE_MSG = 'More than one person is in frame. Please sit so only you are on camera.';
 
 export default function LiveInterviewRoomPage() {
   const router = useRouter();
+  const params = useParams<{ sessionId: string }>();
   const {
     liveSession,
     activePersona,
     plan,
+    activeModeId,
     togglePauseSession,
+    setSessionPaused,
+    toggleMicMuted,
+    interruptInterviewer,
     endLiveSession,
     submitCandidateAnswer,
     triggerWarning,
     clearWarning,
+    setFaceDetected,
   } = useAppStore();
 
-  const { sendObjectState, sendTerminalSubmit, sendAudioChunk, unlockAudioPlayback } = useRealtimeSocket(
-    liveSession.wsToken || 'demo-token',
-    liveSession.id
-  );
+  const {
+    sendObjectState,
+    sendTerminalSubmit,
+    sendAudioChunk,
+    sendFaceState,
+    sendMicState,
+    sendControl,
+    sendInterrupt,
+    unlockAudioPlayback,
+  } = useRealtimeSocket(liveSession.wsToken || 'demo-token', liveSession.id || params.sessionId);
 
   const [time, setTime] = useState(liveSession.timeRemainingSeconds);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [captionsOn, setCaptionsOn] = useState(true);
+  const silentSinceRef = useRef<number | null>(null);
+  const micWarnedRef = useRef(false);
+
   const currentRound = plan.rounds[liveSession.currentRoundIndex] || plan.rounds[0];
-  const isCodingRound = currentRound?.name.toLowerCase().includes('coding') || liveSession.currentQuestionIndex === 3;
+  const isCodingRound = currentRound?.name.toLowerCase().includes('coding');
+  const mode = INTERVIEW_MODES.find((m) => m.id === activeModeId) || INTERVIEW_MODES[2];
+  const candidateTurn =
+    !liveSession.isInterviewerSpeaking && !liveSession.isPaused && !liveSession.isMicMuted;
+
+  const { level: micLevel } = useMicLevel({ enabled: candidateTurn });
+
+  useEffect(() => {
+    setTime(liveSession.timeRemainingSeconds);
+  }, [liveSession.timeRemainingSeconds]);
 
   useEffect(() => {
     if (liveSession.isPaused) return;
-
     const timer = setInterval(() => {
       setTime((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
-
     return () => clearInterval(timer);
   }, [liveSession.isPaused]);
+
+  useEffect(() => {
+    if (!candidateTurn) {
+      silentSinceRef.current = null;
+      if (micWarnedRef.current) {
+        micWarnedRef.current = false;
+        sendMicState('ok');
+        if (liveSession.activeWarning?.type === 'mic' && !liveSession.serverConnected) {
+          clearWarning();
+        }
+      }
+      return;
+    }
+
+    const loud = micLevel >= 8;
+    if (loud) {
+      silentSinceRef.current = null;
+      if (micWarnedRef.current) {
+        micWarnedRef.current = false;
+        sendMicState('ok');
+        if (!liveSession.serverConnected) clearWarning();
+      }
+      return;
+    }
+
+    if (silentSinceRef.current == null) silentSinceRef.current = Date.now();
+    if (Date.now() - silentSinceRef.current >= 6000 && !micWarnedRef.current) {
+      micWarnedRef.current = true;
+      sendMicState('silent');
+      if (!liveSession.serverConnected) {
+        triggerWarning('mic', MIC_SILENT_MSG);
+        globalAudioPlayer.speakText(MIC_SILENT_SPEECH);
+      }
+    }
+  }, [
+    candidateTurn,
+    micLevel,
+    liveSession.serverConnected,
+    liveSession.activeWarning?.type,
+    sendMicState,
+    triggerWarning,
+    clearWarning,
+  ]);
 
   const handleUserAudioUnlock = () => {
     unlockAudioPlayback();
     if (!audioUnlocked) {
       setAudioUnlocked(true);
-      globalAudioPlayer.speakText(liveSession.interviewerCaption);
+      if (!liveSession.serverConnected) {
+        globalAudioPlayer.speakText(liveSession.interviewerCaption);
+      }
     }
   };
 
@@ -63,8 +140,9 @@ export default function LiveInterviewRoomPage() {
   };
 
   const handleEndSession = () => {
-    endLiveSession();
-    router.push('/report/sess-892');
+    sendControl('end');
+    void endLiveSession();
+    router.push(`/report/${liveSession.id || 'sess-892'}`);
   };
 
   const handleAnswerSubmit = (text: string, kind: 'text' | 'code' = 'text') => {
@@ -73,10 +151,41 @@ export default function LiveInterviewRoomPage() {
     sendTerminalSubmit(text, kind);
   };
 
+  const handleFaceLost = useCallback(() => {
+    setFaceDetected(false);
+    sendFaceState('lost');
+    if (!useAppStore.getState().liveSession.serverConnected) {
+      triggerWarning('face', FACE_LOST_MSG);
+      setSessionPaused(true, 'face');
+      globalAudioPlayer.speakText(FACE_LOST_SPEECH);
+    }
+  }, [sendFaceState, setFaceDetected, setSessionPaused, triggerWarning]);
+
+  const handleFaceFound = useCallback(() => {
+    setFaceDetected(true);
+    sendFaceState('found');
+    const session = useAppStore.getState().liveSession;
+    if (!session.serverConnected) {
+      if (session.pauseReason === 'face') setSessionPaused(false);
+      if (session.activeWarning?.type === 'face') clearWarning();
+    }
+  }, [clearWarning, sendFaceState, setFaceDetected, setSessionPaused]);
+
+  const handleMultipleFaces = useCallback(() => {
+    sendFaceState('multiple');
+    if (!useAppStore.getState().liveSession.serverConnected) {
+      triggerWarning('face', MULTI_FACE_MSG);
+    }
+  }, [sendFaceState, triggerWarning]);
+
+  const handleBargeIn = useCallback(() => {
+    interruptInterviewer();
+    sendInterrupt();
+  }, [interruptInterviewer, sendInterrupt]);
+
   return (
-    <div onClick={handleUserAudioUnlock} className="space-y-6 animate-fade-in max-w-6xl mx-auto">
-      {/* Top Header: Unobtrusive Timer & Control Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+    <div onClick={handleUserAudioUnlock} className="h-screen flex flex-col bg-slate-950 text-white">
+      <header className="shrink-0 px-3 sm:px-5 py-3 flex items-center gap-3">
         <TimerBar
           timeRemainingSeconds={time}
           currentRoundName={currentRound.name}
@@ -84,124 +193,138 @@ export default function LiveInterviewRoomPage() {
           totalRounds={plan.rounds.length}
           modeName={plan.mode.toUpperCase()}
         />
-
-        {/* Live Controls: Replay Voice / Pause / End Session */}
-        <div className="flex items-center justify-end gap-2">
+        <div className="ml-auto flex items-center gap-2">
           <button
             onClick={handleReplayInterviewerSpeech}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-accent text-surface text-xs font-semibold font-heading rounded hover:bg-accent-hover transition-colors shadow-xs"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-xs font-semibold rounded-lg"
           >
             <Volume2 className="w-3.5 h-3.5" />
-            {audioUnlocked ? 'Replay Voice' : 'Start Voice Audio'}
-          </button>
-
-          <button
-            onClick={() => triggerWarning('phone', "Phone detected in camera frame. Please place it out of view.")}
-            className="px-2.5 py-1 bg-surface border border-border text-[11px] font-medium text-muted hover:text-ink rounded"
-          >
-            Simulate Phone Warning
+            {audioUnlocked ? 'Replay' : 'Join audio'}
           </button>
           <button
-            onClick={togglePauseSession}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface border border-border hover:bg-bg text-ink text-xs font-semibold font-heading transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              setCaptionsOn((v) => !v);
+            }}
+            className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-xs font-semibold rounded-lg"
           >
-            {liveSession.isPaused ? <Play className="w-3.5 h-3.5 text-accent fill-current" /> : <Pause className="w-3.5 h-3.5 text-muted" />}
-            {liveSession.isPaused ? 'Resume' : 'Pause'}
-          </button>
-          <button
-            onClick={handleEndSession}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-severity-weak/10 hover:bg-severity-weak/20 border border-severity-weak/30 text-severity-weak text-xs font-semibold font-heading transition-colors"
-          >
-            <Square className="w-3.5 h-3.5 fill-current" />
-            End session
+            {captionsOn ? 'Captions on' : 'Captions off'}
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Warning Banner (Amber, calm instruction) */}
       {liveSession.activeWarning && (
-        <WarningBanner
-          type={liveSession.activeWarning.type}
-          message={liveSession.activeWarning.message}
-          onDismiss={clearWarning}
-        />
+        <div className="px-3 sm:px-5 pb-2">
+          <WarningBanner
+            type={liveSession.activeWarning.type}
+            message={liveSession.activeWarning.message}
+            onDismiss={clearWarning}
+          />
+        </div>
       )}
 
-      {/* Main Grid Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* Left 2 Columns: Hero Interviewer Panel & Live Captions */}
-        <div className="lg:col-span-2 space-y-6">
+      <div className="flex-1 min-h-0 px-3 sm:px-5 pb-3 grid grid-cols-1 lg:grid-cols-[1fr_minmax(280px,380px)] gap-3">
+        <section className="relative min-h-[320px]">
           <InterviewerPanel
             persona={activePersona}
             isSpeaking={liveSession.isInterviewerSpeaking}
             isAudioStreaming={liveSession.isAudioStreaming}
           />
 
-          <CaptionsBar
-            captionText={liveSession.interviewerCaption}
-            roundName={currentRound.name}
-          />
-
-          {/* Conditional Input Area: Code Editor Panel during Coding Round, else Terminal Panel */}
-          {isCodingRound ? (
-            <CodeEditorPanel
-              onSubmitCode={(code) => handleAnswerSubmit(code, 'code')}
-              output={liveSession.codeOutput}
-            />
-          ) : (
-            <TerminalPanel
-              onSubmitAnswer={(text) => handleAnswerSubmit(text, 'text')}
-              onAudioChunk={sendAudioChunk}
-            />
+          {captionsOn && (
+            <div className="absolute left-3 right-[7.5rem] sm:right-[11.5rem] bottom-3">
+              <CaptionsBar
+                captionText={liveSession.interviewerCaption}
+                speakerName={activePersona.name}
+                roundName={currentRound.name}
+              />
+            </div>
           )}
-        </div>
 
-        {/* Right Column: Candidate Feed & Round Progress */}
-        <div className="space-y-6">
-          {/* Candidate Feed (Unobtrusive PIP) */}
-          <div className="bg-surface border border-border rounded-lg p-4 space-y-2">
-            <span className="text-xs font-semibold text-muted uppercase tracking-wider font-heading block">
-              Candidate Preview
-            </span>
+          <div className="absolute bottom-3 right-3 w-24 sm:w-40 shadow-2xl rounded-lg overflow-hidden">
             <CandidateCamera
+              compact
               isCandidateSpeaking={liveSession.isCandidateSpeaking}
-              isFaceDetected={true}
+              isMicMuted={liveSession.isMicMuted}
+              onFaceLost={handleFaceLost}
+              onFaceFound={handleFaceFound}
+              onMultipleFaces={handleMultipleFaces}
               onPhoneDetected={() => sendObjectState('phone_detected')}
               onPhoneCleared={() => sendObjectState('phone_cleared')}
             />
           </div>
+        </section>
 
-          {/* Round Progress Ladder */}
-          <div className="bg-surface border border-border rounded-lg p-5 space-y-3">
-            <span className="text-xs font-semibold text-muted uppercase tracking-wider font-heading block">
-              Interview Rounds
-            </span>
-
-            <div className="space-y-2">
-              {plan.rounds.map((r, idx) => {
-                const isCurrent = idx === liveSession.currentRoundIndex;
-                const isPassed = idx < liveSession.currentRoundIndex;
-
-                return (
-                  <div
-                    key={r.id}
-                    className={`p-2.5 rounded-md border text-xs flex items-center justify-between transition-colors ${
-                      isCurrent
-                        ? 'bg-accent-light border-accent text-accent font-semibold font-heading'
-                        : isPassed
-                        ? 'bg-bg border-border text-muted'
-                        : 'bg-surface border-border text-ink'
-                    }`}
-                  >
-                    <span>{r.name}</span>
-                    <span className="font-heading text-[11px]">{r.durationMinutes}m</span>
-                  </div>
-                );
-              })}
-            </div>
+        <aside className="flex flex-col gap-3 min-h-0">
+          <div className="flex-1 min-h-0 overflow-auto rounded-xl bg-slate-900 border border-white/10 p-3">
+            {isCodingRound ? (
+              <CodeEditorPanel
+                variant="dark"
+                onSubmitCode={(code) => handleAnswerSubmit(code, 'code')}
+                output={liveSession.codeOutput}
+              />
+            ) : (
+              <TerminalPanel
+                onSubmitAnswer={(text) => handleAnswerSubmit(text, 'text')}
+                onAudioChunk={sendAudioChunk}
+                onBargeIn={handleBargeIn}
+                autoListen={audioUnlocked && !liveSession.isPaused}
+                muted={liveSession.isMicMuted}
+                interviewerSpeaking={liveSession.isInterviewerSpeaking}
+              />
+            )}
+            {!mode.hintsAllowed && (
+              <p className="mt-2 text-[11px] text-white/40">
+                This is a live interview. No hints during the call
+                {mode.thinkTimeSeconds ? ` · take about ${mode.thinkTimeSeconds}s to think if you need it` : ''}.
+              </p>
+            )}
           </div>
-        </div>
+        </aside>
       </div>
+
+      <footer className="shrink-0 border-t border-white/10 px-4 py-3 flex items-center justify-center gap-3 bg-slate-950">
+        <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-white/50">
+          {liveSession.isMicMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+          {liveSession.isPaused
+            ? 'Paused'
+            : liveSession.isInterviewerSpeaking
+              ? 'Interviewer speaking'
+              : 'Your turn'}
+        </span>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleMicMuted();
+          }}
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-sm font-semibold"
+        >
+          {liveSession.isMicMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+          {liveSession.isMicMuted ? 'Unmute' : 'Mute'}
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            const next = !liveSession.isPaused;
+            togglePauseSession();
+            sendControl(next ? 'pause' : 'resume');
+          }}
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-sm font-semibold"
+        >
+          {liveSession.isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+          {liveSession.isPaused ? 'Resume' : 'Pause'}
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleEndSession();
+          }}
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-red-600 hover:bg-red-500 text-sm font-semibold"
+        >
+          <Square className="w-4 h-4 fill-current" />
+          Leave
+        </button>
+      </footer>
     </div>
   );
 }

@@ -83,8 +83,16 @@ export class RealtimeWsClient {
     this.send('audio.chunk', { chunk: base64Chunk });
   }
 
-  sendFaceState(state: 'lost' | 'found', at: number = Date.now()) {
+  sendFaceState(state: 'lost' | 'found' | 'multiple', at: number = Date.now()) {
     this.send('client.face', { state, at });
+  }
+
+  sendMicState(state: 'silent' | 'ok', at: number = Date.now()) {
+    this.send('client.mic', { state, at });
+  }
+
+  sendControl(action: 'pause' | 'resume' | 'end') {
+    this.send('client.control', { action });
   }
 
   sendObjectState(type: 'phone_detected' | 'phone_cleared', at: number = Date.now()) {

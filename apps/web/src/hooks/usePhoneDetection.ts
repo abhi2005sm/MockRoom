@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 interface PhoneDetectionOptions {
   enabled?: boolean;
-  videoRef: React.RefObject<HTMLVideoElement>;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
   onPhoneDetected?: () => void;
   onPhoneCleared?: () => void;
 }
