@@ -14,6 +14,20 @@ export interface PersonaPreset {
 }
 
 export const PERSONA_PRESETS: Record<string, PersonaPreset> = {
+  'alex-tech-lead': {
+    id: 'alex-tech-lead',
+    name: 'Alex Rivera',
+    title: 'Senior Staff Engineer',
+    companyStyle: 'Tier-1 Tech Firm',
+    avatarUrl: '/avatars/alex.png',
+    voiceName: '21m00Tcm4TlvDq8ikWAM',
+    personality: 'Pragmatic, articulate, focuses heavily on system architecture and code clarity.',
+    style: 'Direct & constructive',
+    tone: 'Calm & professional',
+    followUpIntensity: 'moderate',
+    interruptionRate: 'low',
+    difficulty: 'Level 3',
+  },
   'p-sarah': {
     id: 'p-sarah',
     name: 'Sarah Jenkins',

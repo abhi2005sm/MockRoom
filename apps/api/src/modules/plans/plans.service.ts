@@ -22,11 +22,12 @@ export class PlansService {
     const personaId = dto.personaId || 'p-sarah';
 
     const rounds = [
-      { id: 'r1', name: 'Warm-up & Resume Intro', durationMinutes: 5, questionCount: 1, topics: ['Self-Introduction'] },
-      { id: 'r2', name: 'STAR Behavioral Deep-Dive', durationMinutes: 10, questionCount: 2, topics: ['Outage Resolution', 'Cross-functional Conflict'] },
-      { id: 'r3', name: 'Technical & Architecture', durationMinutes: 15, questionCount: 2, topics: ['React Component Architecture', 'WebSocket State Synchronization'] },
-      { id: 'r4', name: 'Live Coding Lab', durationMinutes: 10, questionCount: 1, topics: ['Array Debounce Utility'] },
-      { id: 'r5', name: 'Candidate Questions & Closing', durationMinutes: 5, questionCount: 1, topics: ['Team Culture'] },
+      { id: 'r1', name: 'Warm-up & Background', durationMinutes: 5, questionCount: 1, topics: ['Self-Introduction'] },
+      { id: 'r2', name: 'Behavioral', durationMinutes: 10, questionCount: 2, topics: ['Outage Resolution', 'Cross-functional Conflict'] },
+      { id: 'r3', name: 'Technical', durationMinutes: 12, questionCount: 2, topics: ['React Component Architecture', 'WebSocket State Synchronization'] },
+      { id: 'r4', name: 'Coding', durationMinutes: 10, questionCount: 1, topics: ['Array Debounce Utility'] },
+      { id: 'r5', name: 'Your questions', durationMinutes: 5, questionCount: 1, topics: ['Team Culture'] },
+      { id: 'r6', name: 'Close', durationMinutes: 3, questionCount: 1, topics: ['Next steps'] },
     ];
 
     let plan;
@@ -122,11 +123,12 @@ export class PlansService {
         durationMinutes: 45,
         totalQuestions: 7,
         rounds: [
-          { id: 'r1', name: 'Warm-up & Resume Intro', durationMinutes: 5, questionCount: 1, topics: ['Self-Introduction'] },
-          { id: 'r2', name: 'STAR Behavioral Deep-Dive', durationMinutes: 10, questionCount: 2, topics: ['Outage Resolution'] },
-          { id: 'r3', name: 'Technical & Architecture', durationMinutes: 15, questionCount: 2, topics: ['React Architecture'] },
-          { id: 'r4', name: 'Live Coding Lab', durationMinutes: 10, questionCount: 1, topics: ['Debounce Algorithm'] },
-          { id: 'r5', name: 'Closing', durationMinutes: 5, questionCount: 1, topics: ['Questions'] },
+          { id: 'r1', name: 'Warm-up & Background', durationMinutes: 5, questionCount: 1, topics: ['Self-Introduction'] },
+          { id: 'r2', name: 'Behavioral', durationMinutes: 10, questionCount: 2, topics: ['Outage Resolution'] },
+          { id: 'r3', name: 'Technical', durationMinutes: 12, questionCount: 2, topics: ['React Architecture'] },
+          { id: 'r4', name: 'Coding', durationMinutes: 10, questionCount: 1, topics: ['Debounce Algorithm'] },
+          { id: 'r5', name: 'Your questions', durationMinutes: 5, questionCount: 1, topics: ['Team Culture'] },
+          { id: 'r6', name: 'Close', durationMinutes: 3, questionCount: 1, topics: ['Next steps'] },
         ],
       };
     }

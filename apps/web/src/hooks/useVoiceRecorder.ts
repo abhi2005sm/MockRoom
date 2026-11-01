@@ -23,6 +23,10 @@ export function useVoiceRecorder({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
+  const wantListenRef = useRef(false);
+  const transcriptRef = useRef('');
+  const onFinalTranscriptRef = useRef(onFinalTranscript);
+  onFinalTranscriptRef.current = onFinalTranscript;
 
   // Initialize SpeechRecognition if available
   useEffect(() => {
@@ -53,6 +57,7 @@ export function useVoiceRecorder({
         if (finalStr) {
           setTranscript((prev) => {
             const updated = (prev + ' ' + finalStr).trim();
+            transcriptRef.current = updated;
             if (onTranscriptChange) onTranscriptChange(updated);
             return updated;
           });
@@ -60,12 +65,16 @@ export function useVoiceRecorder({
 
         setInterimTranscript(interimStr);
 
-        // Reset silence timer on speech result
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         if (autoSubmitSilenceMs > 0 && (finalStr || interimStr)) {
           silenceTimerRef.current = setTimeout(() => {
-            // Auto submit speech if user stops talking
-            console.log('[useVoiceRecorder] Silence detected. Stopping recording.');
+            const spoken = transcriptRef.current.trim();
+            if (spoken) {
+              onFinalTranscriptRef.current?.(spoken);
+              transcriptRef.current = '';
+              setTranscript('');
+              setInterimTranscript('');
+            }
           }, autoSubmitSilenceMs);
         }
       };
@@ -78,6 +87,14 @@ export function useVoiceRecorder({
       };
 
       rec.onend = () => {
+        if (wantListenRef.current) {
+          try {
+            rec.start();
+            return;
+          } catch {
+            /* already started */
+          }
+        }
         setIsListening(false);
       };
 
@@ -87,6 +104,7 @@ export function useVoiceRecorder({
 
   const startListening = useCallback(async () => {
     setError(null);
+    wantListenRef.current = true;
     try {
       // 1. Request microphone media stream
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -132,6 +150,7 @@ export function useVoiceRecorder({
   }, [onAudioChunk]);
 
   const stopListening = useCallback(() => {
+    wantListenRef.current = false;
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
     if (recognitionRef.current) {
@@ -151,13 +170,10 @@ export function useVoiceRecorder({
     }
 
     setIsListening(false);
-
-    if (transcript.trim() && onFinalTranscript) {
-      onFinalTranscript(transcript.trim());
-    }
-  }, [transcript, onFinalTranscript]);
+  }, []);
 
   const resetTranscript = useCallback(() => {
+    transcriptRef.current = '';
     setTranscript('');
     setInterimTranscript('');
   }, []);

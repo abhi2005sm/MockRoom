@@ -6,6 +6,7 @@ import { Play, CheckCircle2, XCircle, Code2, Check } from 'lucide-react';
 interface CodeEditorPanelProps {
   onSubmitCode: (code: string) => void;
   output: { stdout: string; stderr: string; passed: boolean; testCases: { name: string; passed: boolean }[] } | null;
+  variant?: 'light' | 'dark';
 }
 
 const DEFAULT_STARTER_CODE = `import { useState, useEffect } from 'react';
@@ -30,18 +31,19 @@ export function useDebounce<T>(value: T, delayMs: number): T {
 }
 `;
 
-export function CodeEditorPanel({ onSubmitCode, output }: CodeEditorPanelProps) {
+export function CodeEditorPanel({ onSubmitCode, output, variant = 'light' }: CodeEditorPanelProps) {
   const [code, setCode] = useState(DEFAULT_STARTER_CODE);
   const [language, setLanguage] = useState('typescript');
+  const dark = variant === 'dark';
 
   return (
-    <div className="bg-surface border border-border rounded-lg p-5 space-y-4 shadow-soft">
+    <div className={dark ? 'space-y-4 text-white' : 'bg-surface border border-border rounded-lg p-5 space-y-4 shadow-soft'}>
       {/* Editor Header Toolbar */}
-      <div className="flex items-center justify-between border-b border-border pb-3">
+      <div className={`flex items-center justify-between border-b pb-3 ${dark ? 'border-white/10' : 'border-border'}`}>
         <div className="flex items-center gap-2">
-          <Code2 className="w-4 h-4 text-accent" />
-          <span className="font-heading font-bold text-ink text-sm">
-            Live Coding Lab — Custom Hook Exercise
+          <Code2 className={`w-4 h-4 ${dark ? 'text-sky-300' : 'text-accent'}`} />
+          <span className={`font-heading font-bold text-sm ${dark ? 'text-white' : 'text-ink'}`}>
+            Coding exercise
           </span>
         </div>
 
@@ -49,7 +51,7 @@ export function CodeEditorPanel({ onSubmitCode, output }: CodeEditorPanelProps) 
           <select
             value={language}
             onChange={(e) => setLanguage(e.target.value)}
-            className="px-2.5 py-1 bg-bg border border-border rounded text-xs text-ink font-mono focus:outline-none"
+            className={`px-2.5 py-1 border rounded text-xs font-mono focus:outline-none ${dark ? 'bg-black/40 border-white/15 text-white' : 'bg-bg border-border text-ink'}`}
           >
             <option value="typescript">TypeScript</option>
             <option value="javascript">JavaScript</option>

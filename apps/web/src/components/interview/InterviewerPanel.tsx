@@ -3,7 +3,6 @@
 import React from 'react';
 import { Persona } from '../../lib/shared/types';
 import { clsx } from 'clsx';
-import { PillTag } from '../ui/PillTag';
 
 interface InterviewerPanelProps {
   persona: Persona;
@@ -13,54 +12,38 @@ interface InterviewerPanelProps {
 
 export function InterviewerPanel({ persona, isSpeaking }: InterviewerPanelProps) {
   return (
-    <div className="bg-surface border border-border rounded-card p-6 shadow-card relative overflow-hidden flex flex-col items-center justify-center text-center min-h-[250px]">
-      {/* Background Subtle Gradient */}
-      <div className="absolute inset-0 bg-gradient-to-b from-accent-soft/30 to-surface pointer-events-none" />
-
-      {/* Friendly Circular AI Interviewer Avatar with Pulse Ring */}
-      <div className="relative mb-3 z-10">
-        {/* Soft Pulse Ring when speaking */}
+    <div className="relative h-full min-h-[280px] sm:min-h-[420px] rounded-2xl overflow-hidden bg-gradient-to-b from-slate-800 to-slate-950 flex flex-col items-center justify-center text-center">
+      <div className="relative mb-4">
         {isSpeaking && (
-          <div className="absolute -inset-3 rounded-full bg-accent/15 animate-ping" />
+          <div className="absolute -inset-4 rounded-full bg-sky-400/20 animate-ping" />
         )}
         <div
           className={clsx(
-            'w-24 h-24 rounded-full bg-accent text-surface flex items-center justify-center font-heading font-extrabold text-2xl shadow-md border-4 border-surface transition-all duration-300 relative z-10',
-            isSpeaking ? 'scale-105 ring-4 ring-accent/20' : 'opacity-95'
+            'w-28 h-28 sm:w-36 sm:h-36 rounded-full bg-sky-600 text-white flex items-center justify-center font-heading font-extrabold text-3xl sm:text-4xl shadow-xl border-4 border-white/10 transition-transform duration-300 relative z-10',
+            isSpeaking ? 'scale-105' : 'scale-100'
           )}
         >
-          {persona.name.split(' ').map((n) => n[0]).join('')}
-        </div>
-
-        {/* Live Audio Indicator Pill */}
-        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 z-20">
-          <PillTag
-            label={isSpeaking ? 'Speaking' : 'Listening'}
-            variant={isSpeaking ? 'accent' : 'muted'}
-          />
+          {persona.name
+            .split(' ')
+            .map((n) => n[0])
+            .join('')}
         </div>
       </div>
 
-      {/* Persona Info */}
-      <div className="space-y-1 relative z-10 mt-2">
-        <h3 className="font-heading font-bold text-ink text-lg">{persona.name}</h3>
-        <p className="text-xs text-muted font-medium">
-          {persona.title} • <span className="text-ink">{persona.companyStyle}</span>
+      <div className="space-y-1 z-10 px-4">
+        <h3 className="font-heading font-bold text-white text-lg sm:text-xl">{persona.name}</h3>
+        <p className="text-xs sm:text-sm text-white/70">
+          {persona.title}
         </p>
+        <p className="text-[11px] text-white/50">{isSpeaking ? 'Speaking' : 'Listening'}</p>
       </div>
 
-      {/* Dynamic Animated Voice Waveform Bars */}
-      <div className="flex items-center justify-center gap-1.5 h-6 w-44 mt-4 relative z-10">
+      <div className="flex items-center justify-center gap-1.5 h-8 w-48 mt-5 z-10">
         {[40, 75, 100, 60, 90, 45, 80, 55, 95, 50, 70, 30].map((h, i) => (
           <span
             key={i}
-            className={clsx(
-              'w-1 rounded-full transition-all duration-150',
-              isSpeaking ? 'bg-accent' : 'bg-border'
-            )}
-            style={{
-              height: isSpeaking ? `${h}%` : '25%',
-            }}
+            className={clsx('w-1 rounded-full transition-all duration-150', isSpeaking ? 'bg-sky-300' : 'bg-white/20')}
+            style={{ height: isSpeaking ? `${h}%` : '20%' }}
           />
         ))}
       </div>

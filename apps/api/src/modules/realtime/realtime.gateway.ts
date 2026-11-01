@@ -66,19 +66,21 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         `WS Client connected/reconnected for session ${sessionId} (User: ${payload.sub})`
       );
 
-      // Retrieve state machine to preserve session state on reconnect
       const sm = this.orchestratorService.getOrCreateStateMachine(sessionId);
       const state = sm.getContext();
 
-      // Emit current interview state on connect/reconnect
       this.sendJson(client, 'server.state', {
         round: state.currentRound,
         timeRemaining: state.timeRemainingSeconds,
         questionIndex: state.questionIndex,
         total: state.totalQuestions,
         mode: 'realistic',
-        persona: 'p-sarah',
+        persona: 'alex-tech-lead',
       });
+
+      if (!state.openingDelivered) {
+        void this.deliverOpening(client, sessionId);
+      }
     } catch (err: any) {
       this.logger.warn(`WS Auth failed: ${err.message}`);
       client.close(4002, 'Authentication failed');
@@ -179,16 +181,48 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     await this.processTurn(client, sessionId, payload.text);
   }
 
+  private async deliverOpening(client: WebSocket, sessionId: string) {
+    try {
+      const result = await this.orchestratorService.startOpeningTurn(
+        sessionId,
+        'alex-tech-lead',
+        (tokenDelta) => {
+          this.sendJson(client, 'server.interviewer.stream', { delta: tokenDelta });
+        },
+        (audioBuf) => {
+          this.sendJson(client, 'server.audio.chunk', {
+            chunk: audioBuf.toString('base64'),
+          });
+        }
+      );
+      if (!result) return;
+      this.sendJson(client, 'server.interviewer.text', {
+        text: result.interviewerText,
+        turnId: result.turnId,
+      });
+      this.sendJson(client, 'server.state', result.state);
+    } catch (err: any) {
+      this.logger.warn(`Opening turn failed: ${err.message}`);
+    }
+  }
+
   private async processTurn(
     client: WebSocket,
     sessionId: string,
     candidateText: string
   ) {
     try {
+      this.sendJson(client, 'server.interviewer.ack', { text: 'Okay.' });
+      await this.orchestratorService.speakAckFiller('alex-tech-lead', (audioBuf) => {
+        this.sendJson(client, 'server.audio.chunk', {
+          chunk: audioBuf.toString('base64'),
+        });
+      });
+
       const result = await this.orchestratorService.processCandidateMessage(
         sessionId,
         candidateText,
-        'p-sarah',
+        'alex-tech-lead',
         undefined,
         (tokenDelta) => {
           // Token-by-token streaming response to client
@@ -226,15 +260,57 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   @SubscribeMessage('client.face')
-  handleFaceState(
-    @ConnectedSocket() client: WebSocket,
-    @MessageBody() payload: { state: 'lost' | 'found'; at: number }
+  async handleFaceState(
+    @ConnectedSocket() client: WebSocket & { sessionId?: string },
+    @MessageBody() payload: { state: 'lost' | 'found' | 'multiple'; at: number }
   ) {
+    const sessionId = client.sessionId || 'sess-892';
+    if (payload.state === 'multiple') {
+      await this.warningService.handleMultipleFaces(client, sessionId, (c, event, p) =>
+        this.sendJson(c, event, p)
+      );
+      return;
+    }
     if (payload.state === 'lost') {
-      this.sendJson(client, 'server.warning', {
-        type: 'face',
-        message: 'Face camera feed lost. Please position your face clearly in frame.',
-      });
+      await this.warningService.handleFaceLost(client, sessionId, (c, event, p) =>
+        this.sendJson(c, event, p)
+      );
+    } else {
+      await this.warningService.handleFaceFound(client, sessionId, (c, event, p) =>
+        this.sendJson(c, event, p)
+      );
+    }
+  }
+
+  @SubscribeMessage('client.mic')
+  async handleMicState(
+    @ConnectedSocket() client: WebSocket & { sessionId?: string },
+    @MessageBody() payload: { state: 'silent' | 'ok'; at: number }
+  ) {
+    const sessionId = client.sessionId || 'sess-892';
+    if (payload.state === 'silent') {
+      await this.warningService.handleMicSilent(client, sessionId, (c, event, p) =>
+        this.sendJson(c, event, p)
+      );
+    } else {
+      this.warningService.clearMicWarning(client, sessionId, (c, event, p) =>
+        this.sendJson(c, event, p)
+      );
+    }
+  }
+
+  @SubscribeMessage('client.control')
+  handleControl(
+    @ConnectedSocket() client: WebSocket & { sessionId?: string },
+    @MessageBody() payload: { action: 'pause' | 'resume' | 'end' }
+  ) {
+    const sessionId = client.sessionId || 'sess-892';
+    const sm = this.orchestratorService.getOrCreateStateMachine(sessionId);
+    if (payload.action === 'pause') sm.pause();
+    if (payload.action === 'resume') sm.resume();
+    if (payload.action === 'end') {
+      sm.endSession();
+      this.sendJson(client, 'server.session.ended', { reportPending: true });
     }
   }
 

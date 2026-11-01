@@ -33,11 +33,17 @@ interface LiveSessionState {
   company: string;
   currentRoundIndex: number;
   currentQuestionIndex: number;
+  followUpsAsked: number;
   timeRemainingSeconds: number;
   isPaused: boolean;
+  pauseReason: 'user' | 'face' | 'mic' | 'phone' | null;
   isAudioStreaming: boolean;
   isInterviewerSpeaking: boolean;
   isCandidateSpeaking: boolean;
+  isMicMuted: boolean;
+  isFaceDetected: boolean;
+  awaitingInterviewer: boolean;
+  serverConnected: boolean;
   interviewerCaption: string;
   turns: Turn[];
   activeWarning: { type: 'face' | 'mic' | 'network' | 'phone'; message: string } | null;
@@ -63,13 +69,18 @@ interface AppStoreState {
   setMode: (modeId: any) => Promise<void>;
   setPersona: (personaId: string) => Promise<void>;
   
-  startLiveSession: () => Promise<void>;
+  startLiveSession: () => Promise<string>;
   togglePauseSession: () => void;
+  setSessionPaused: (paused: boolean, reason?: LiveSessionState['pauseReason']) => void;
+  toggleMicMuted: () => void;
+  interruptInterviewer: () => void;
   endLiveSession: () => Promise<void>;
   submitCandidateAnswer: (text: string, kind?: 'text' | 'code') => void;
   triggerWarning: (type: 'face' | 'mic' | 'network' | 'phone', message: string) => void;
   clearWarning: () => void;
-  
+  markServerConnected: (connected: boolean) => void;
+  setFaceDetected: (detected: boolean) => void;
+
   handleServerCaptions: (text: string, turnId: string) => void;
   handleServerState: (data: any) => void;
   handleSessionEnded: () => void;
@@ -78,31 +89,73 @@ interface AppStoreState {
   removeRetryQuestion: (id: string) => void;
 }
 
+const MAX_FOLLOW_UPS: Record<string, number> = {
+  practice: 1,
+  learning: 1,
+  realistic: 2,
+  pressure: 3,
+  company_sim: 3,
+  final_mock: 4,
+};
+
+const FOLLOW_UP_LINES = [
+  'Got it. Can you walk me through a specific example — what you did and how it turned out?',
+  'What was the hardest part of that, and how did you decide what to do?',
+  'If you had to do that again, what would you change?',
+];
+
+const ROUND_KEYS = ['warmup', 'behavioral', 'technical', 'coding', 'candidate_questions', 'closing'];
+
+function roundToIndex(round?: string, fallback = 0) {
+  if (!round) return fallback;
+  const key = round.toLowerCase().replace(/\s+/g, '_');
+  const byKey = ROUND_KEYS.indexOf(key);
+  if (byKey >= 0) return byKey;
+  if (round.toLowerCase().includes('warm')) return 0;
+  if (round.toLowerCase().includes('behav')) return 1;
+  if (round.toLowerCase().includes('tech')) return 2;
+  if (round.toLowerCase().includes('cod')) return 3;
+  if (round.toLowerCase().includes('question')) return 4;
+  if (round.toLowerCase().includes('close')) return 5;
+  return fallback;
+}
+
 const SAMPLE_QUESTIONS = [
   {
     round: 'Warm-up & Background',
-    text: 'Tell me about yourself and why you are interested in this Senior Frontend Engineer role at Stripe.',
-    interviewerIntro: 'Welcome to MockRoom. Let’s start with a warm-up. Could you walk me through your background and interest in Stripe?',
+    text: 'Tell me about yourself and why you are interested in this Senior Frontend Engineer role.',
+    interviewerIntro:
+      "Hi, I'm Alex Rivera, staff engineer on the frontend platform team. We'll start with your background, then some technical discussion, a short coding exercise, and time for your questions. To begin, could you walk me through your background and what draws you to this role?",
   },
   {
-    round: 'Behavioral & STAR',
+    round: 'Behavioral',
     text: 'Describe a time when you had to resolve a complex production outage under pressure.',
-    interviewerIntro: 'Thanks for sharing that background. Now let’s move to behavioral experience. Tell me about a time you handled a critical production incident.',
+    interviewerIntro:
+      'Thanks, that is helpful. Tell me about a time you handled a production incident. What was the situation, what did you do, and how did it turn out?',
   },
   {
-    round: 'Technical Depth',
-    text: 'How does React’s reconciliation algorithm handle key props in dynamic lists?',
-    interviewerIntro: 'Got it. Let’s dive into frontend architecture. Can you explain React’s diffing heuristics and why key props matter?',
+    round: 'Technical',
+    text: "How does React's reconciliation algorithm handle key props in dynamic lists?",
+    interviewerIntro:
+      "I'd like to shift to a technical question. When React reconciles a dynamic list, what goes wrong if keys are missing or unstable, and how do you think about that in production UI?",
   },
   {
-    round: 'Live Coding Lab',
-    text: 'Implement a reusable custom hook `useDebounce<T>(value: T, delayMs: number): T` in TypeScript with cleanup.',
-    interviewerIntro: 'Now let’s open the Code Editor panel. Write a debounced hook and run the automated test checks.',
+    round: 'Coding',
+    text: 'Implement a reusable custom hook useDebounce<T>(value: T, delayMs: number): T in TypeScript with cleanup.',
+    interviewerIntro:
+      "Let's do a short coding exercise. Please implement a reusable useDebounce hook with proper cleanup, then run it when you are ready. I'll stay on the call if you want to talk through it.",
   },
   {
-    round: 'Candidate Questions & Closing',
-    text: 'What questions do you have for me about Stripe engineering team culture and architecture decisions?',
-    interviewerIntro: 'Great code submission! We are wrapping up. What questions do you have for me?',
+    round: 'Your questions',
+    text: 'What questions do you have for me about the team or the role?',
+    interviewerIntro:
+      'I want to leave time for you. What questions do you have for me about the team, the role, or how we work?',
+  },
+  {
+    round: 'Close',
+    text: 'Thanks for your time.',
+    interviewerIntro:
+      "Those are good questions. That's all I had for today — thanks for walking through that with me. We'll follow up with next steps.",
   },
 ];
 
@@ -119,11 +172,17 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     company: 'Stripe (Simulated)',
     currentRoundIndex: 0,
     currentQuestionIndex: 0,
+    followUpsAsked: 0,
     timeRemainingSeconds: 2700,
     isPaused: false,
+    pauseReason: null,
     isAudioStreaming: false,
     isInterviewerSpeaking: true,
     isCandidateSpeaking: false,
+    isMicMuted: false,
+    isFaceDetected: true,
+    awaitingInterviewer: false,
+    serverConnected: false,
     interviewerCaption: SAMPLE_QUESTIONS[0].interviewerIntro,
     turns: [
       {
@@ -244,11 +303,17 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         company: get().jobAnalysis.company,
         currentRoundIndex: 0,
         currentQuestionIndex: 0,
+        followUpsAsked: 0,
         timeRemainingSeconds: 2700,
         isPaused: false,
+        pauseReason: null,
         isAudioStreaming: true,
         isInterviewerSpeaking: true,
         isCandidateSpeaking: false,
+        isMicMuted: false,
+        isFaceDetected: true,
+        awaitingInterviewer: Boolean(wsToken),
+        serverConnected: false,
         interviewerCaption: firstQ.interviewerIntro,
         turns: [
           {
@@ -266,11 +331,60 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         codeOutput: null,
       },
     });
+
+    return sessionId;
   },
 
   togglePauseSession: () => {
+    set((state) => {
+      const nextPaused = !state.liveSession.isPaused;
+      return {
+        liveSession: {
+          ...state.liveSession,
+          isPaused: nextPaused,
+          pauseReason: nextPaused ? 'user' : null,
+        },
+      };
+    });
+  },
+
+  setSessionPaused: (paused, reason = null) => {
     set((state) => ({
-      liveSession: { ...state.liveSession, isPaused: !state.liveSession.isPaused },
+      liveSession: {
+        ...state.liveSession,
+        isPaused: paused,
+        pauseReason: paused ? reason : null,
+      },
+    }));
+  },
+
+  interruptInterviewer: () => {
+    globalAudioPlayer.clearQueue();
+    set((state) => ({
+      liveSession: {
+        ...state.liveSession,
+        isInterviewerSpeaking: false,
+        isAudioStreaming: false,
+        isCandidateSpeaking: true,
+      },
+    }));
+  },
+
+  toggleMicMuted: () => {
+    set((state) => ({
+      liveSession: { ...state.liveSession, isMicMuted: !state.liveSession.isMicMuted },
+    }));
+  },
+
+  markServerConnected: (connected) => {
+    set((state) => ({
+      liveSession: { ...state.liveSession, serverConnected: connected },
+    }));
+  },
+
+  setFaceDetected: (detected) => {
+    set((state) => ({
+      liveSession: { ...state.liveSession, isFaceDetected: detected },
     }));
   },
 
@@ -291,9 +405,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
   submitCandidateAnswer: (text, kind = 'text') => {
     const session = get().liveSession;
+    const modeId = get().activeModeId;
     const currentQIndex = session.currentQuestionIndex;
-    const nextQIndex = Math.min(SAMPLE_QUESTIONS.length - 1, currentQIndex + 1);
-    const nextQ = SAMPLE_QUESTIONS[nextQIndex];
 
     const candidateTurn: Turn = {
       id: `turn-cand-${Date.now()}`,
@@ -322,27 +435,64 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       };
     }
 
+    if (session.serverConnected) {
+      set({
+        liveSession: {
+          ...session,
+          isCandidateSpeaking: false,
+          isInterviewerSpeaking: true,
+          awaitingInterviewer: true,
+          turns: [...session.turns, candidateTurn],
+          codeOutput: simulatedCodeOutput,
+        },
+      });
+      return;
+    }
+
+    const maxFollowUps = MAX_FOLLOW_UPS[modeId] ?? 2;
+    const canFollowUp =
+      kind !== 'code' &&
+      SAMPLE_QUESTIONS[currentQIndex].round !== 'Close' &&
+      session.followUpsAsked < maxFollowUps;
+
+    let interviewerText: string;
+    let nextQIndex = currentQIndex;
+    let nextRoundIndex = session.currentRoundIndex;
+    let followUpsAsked = session.followUpsAsked;
+
+    if (canFollowUp) {
+      interviewerText = FOLLOW_UP_LINES[session.followUpsAsked % FOLLOW_UP_LINES.length];
+      followUpsAsked += 1;
+    } else {
+      nextQIndex = Math.min(SAMPLE_QUESTIONS.length - 1, currentQIndex + 1);
+      nextRoundIndex = Math.min(get().plan.rounds.length - 1, nextQIndex);
+      followUpsAsked = 0;
+      interviewerText = SAMPLE_QUESTIONS[nextQIndex].interviewerIntro;
+    }
+
     const interviewerTurn: Turn = {
       id: `turn-int-${Date.now()}`,
       sessionId: session.id,
-      round: nextQ.round,
+      round: SAMPLE_QUESTIONS[nextQIndex].round,
       seq: session.turns.length + 2,
       speaker: 'interviewer',
-      text: nextQ.interviewerIntro,
+      text: interviewerText,
       startMs: Date.now(),
       endMs: Date.now() + 4000,
     };
 
-    globalAudioPlayer.speakText(nextQ.interviewerIntro);
+    globalAudioPlayer.speakText(interviewerText);
 
     set({
       liveSession: {
         ...session,
         currentQuestionIndex: nextQIndex,
-        currentRoundIndex: Math.min(4, Math.floor(nextQIndex)),
+        currentRoundIndex: nextRoundIndex,
+        followUpsAsked,
         isCandidateSpeaking: false,
         isInterviewerSpeaking: true,
-        interviewerCaption: nextQ.interviewerIntro,
+        awaitingInterviewer: false,
+        interviewerCaption: interviewerText,
         turns: [...session.turns, candidateTurn, interviewerTurn],
         codeOutput: simulatedCodeOutput,
       },
@@ -354,7 +504,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const newTurn: Turn = {
       id: turnId || `turn-int-${Date.now()}`,
       sessionId: session.id,
-      round: 'Active Round',
+      round: get().plan.rounds[session.currentRoundIndex]?.name || 'Interview',
       seq: session.turns.length + 1,
       speaker: 'interviewer',
       text,
@@ -362,13 +512,12 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       endMs: Date.now() + 3000,
     };
 
-    globalAudioPlayer.speakText(text);
-
     set({
       liveSession: {
         ...session,
         isInterviewerSpeaking: true,
         isCandidateSpeaking: false,
+        awaitingInterviewer: false,
         interviewerCaption: text,
         turns: [...session.turns, newTurn],
       },
@@ -380,7 +529,13 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     set((state) => ({
       liveSession: {
         ...state.liveSession,
-        timeRemainingSeconds: data.timeRemaining || state.liveSession.timeRemainingSeconds,
+        timeRemainingSeconds: data.timeRemaining ?? state.liveSession.timeRemainingSeconds,
+        currentRoundIndex: roundToIndex(data.round, state.liveSession.currentRoundIndex),
+        currentQuestionIndex: Math.max(
+          0,
+          (data.questionIndex || 1) - 1
+        ),
+        awaitingInterviewer: data.isCompleted ? false : state.liveSession.awaitingInterviewer,
       },
     }));
   },
@@ -390,21 +545,32 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   triggerWarning: (type, message) => {
-    set((state) => ({
-      liveSession: {
-        ...state.liveSession,
-        activeWarning: { type, message },
-      },
-    }));
+    set((state) => {
+      const shouldPause = type === 'face' || type === 'phone';
+      return {
+        liveSession: {
+          ...state.liveSession,
+          activeWarning: { type, message },
+          isPaused: shouldPause ? true : state.liveSession.isPaused,
+          pauseReason: shouldPause ? type : state.liveSession.pauseReason,
+        },
+      };
+    });
   },
 
   clearWarning: () => {
-    set((state) => ({
-      liveSession: {
-        ...state.liveSession,
-        activeWarning: null,
-      },
-    }));
+    set((state) => {
+      const reason = state.liveSession.pauseReason;
+      const resume = reason === 'face' || reason === 'phone' || reason === 'mic';
+      return {
+        liveSession: {
+          ...state.liveSession,
+          activeWarning: null,
+          isPaused: resume ? false : state.liveSession.isPaused,
+          pauseReason: resume ? null : reason,
+        },
+      };
+    });
   },
 
   addPracticeAttempt: async (coachingSectionId, attemptText) => {
